@@ -6,7 +6,7 @@
 #include "Subsystems/WorldSubsystem.h"
 #include "StonekinSimSubSystem.generated.h"
 
-
+class AStonekinSimManager;
 
 UCLASS()
 class EUNGCHACHA_API UStonekinSimSubSystem : public UTickableWorldSubsystem
@@ -22,7 +22,7 @@ public:
 	
 	TArray<FVector> GetPositions() const;
 	TArray<FQuat> GetRotations() const;
-
+	TObjectPtr<AStonekinSimManager> Manager;
 private:
 	TArray<float> Velocities;
 	TArray<FVector> Positions;

@@ -24,6 +24,18 @@ void AStonekinRenderManager::BeginPlay()
 	
 	SimSubSystem = GetWorld()->GetSubsystem<UStonekinSimSubSystem>();
 	
+	const TArray<FVector>& Positions = SimSubSystem->GetPositions();
+	const TArray<FQuat>& Rotations = SimSubSystem->GetRotations();
+	int32 NumInstances = Positions.Num();
+	if (Positions.Num()!=Rotations.Num()) return;
+	int32 CurrentISMCount = HISMComponent->GetInstanceCount();
+	if (NumInstances > CurrentISMCount)
+	{
+		for (int32 i = CurrentISMCount; i < NumInstances;++i)
+		{
+			HISMComponent->AddInstance(FTransform(Positions[i]));
+		}
+	}
 }
 
 // Called every frame
@@ -37,14 +49,6 @@ void AStonekinRenderManager::Tick(float DeltaTime)
 	const TArray<FQuat>& Rotations = SimSubSystem->GetRotations();
 	int32 NumInstances = Positions.Num();
 	if (Positions.Num()!=Rotations.Num()) return;
-	int32 CurrentISMCount = HISMComponent->GetInstanceCount();
-	if (NumInstances > CurrentISMCount)
-	{
-		for (int32 i = CurrentISMCount; i < NumInstances;++i)
-		{
-			HISMComponent->AddInstance(FTransform(Positions[i]));
-		}
-	}
 	
 	for (int32 i = 0 ; i <NumInstances;++i)
 	{
@@ -52,14 +56,5 @@ void AStonekinRenderManager::Tick(float DeltaTime)
 		HISMComponent->UpdateInstanceTransform(i,NewTransform,true,false,false);
 	}
 	HISMComponent->MarkRenderStateDirty();
-	// for (int32 i =0 ; i<NumInstances;++i)
-	// {
-	// 	FTransform InstanceTransform;
-	// 	HISMComponent->GetInstanceTransform(i,InstanceTransform,true);
-	// 	InstanceTransform.SetLocation(Positions[i]);
-	// 	
-	// 	HISMComponent->UpdateInstanceTransform(i,InstanceTransform,true);
-	// }
-	// HISMComponent->MarkRenderStateDirty();
 }
 
