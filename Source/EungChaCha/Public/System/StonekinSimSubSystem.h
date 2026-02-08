@@ -13,6 +13,7 @@ class EUNGCHACHA_API UStonekinSimSubSystem : public UTickableWorldSubsystem
 {
 	GENERATED_BODY()
 protected:
+	void OnWorldBeginPlay(UWorld& InWorld) override;
 	virtual TStatId GetStatId() const override;
 	void Tick(float DeltaTime) override;
 	void Initialize(FSubsystemCollectionBase& Collection) override;
@@ -23,6 +24,8 @@ public:
 	TArray<FVector> GetPositions() const;
 	TArray<FQuat> GetRotations() const;
 	TObjectPtr<AStonekinSimManager> Manager;
+private:
+	float GetStoneHeight(FVector CurrentPos);
 private:
 	TArray<float> Velocities;
 	TArray<FVector> Positions;

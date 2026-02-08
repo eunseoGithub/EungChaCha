@@ -5,6 +5,8 @@
 
 #include "System/StonekinSimSubSystem.h"
 #include "Components/HierarchicalInstancedStaticMeshComponent.h"
+#include "Components/InstancedStaticMeshComponent.h"
+#include "System/MainGameInstance.h"
 
 // Sets default values
 AStonekinRenderManager::AStonekinRenderManager()
@@ -33,9 +35,10 @@ void AStonekinRenderManager::BeginPlay()
 	{
 		for (int32 i = CurrentISMCount; i < NumInstances;++i)
 		{
-			HISMComponent->AddInstance(FTransform(Positions[i]));
+			HISMComponent->AddInstance(FTransform(Positions[i]),true);
 		}
 	}
+	
 }
 
 // Called every frame

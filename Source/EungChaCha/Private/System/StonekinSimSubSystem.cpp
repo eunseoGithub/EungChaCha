@@ -5,6 +5,16 @@
 
 #include "StonekinSimManager.h"
 #include "Kismet/GameplayStatics.h"
+#include "System/MainGameInstance.h"
+
+void UStonekinSimSubSystem::OnWorldBeginPlay(UWorld& InWorld)
+{
+	Super::OnWorldBeginPlay(InWorld);
+	if (UMainGameInstance* GI = UMainGameInstance::Get(this))
+	{
+		GI->GetLandscapeHeightMap();
+	}
+}
 
 TStatId UStonekinSimSubSystem::GetStatId() const
 {
@@ -76,15 +86,15 @@ void UStonekinSimSubSystem::UpdateSimulation(float DeltaTime)
 			float Distance = FVector::Dist(MyPos, OtherPos);
 			if (Distance < DesiredSeparation && Distance > 0.01f)
 			{
-				FVector Diff = MyPos-OtherPos;
-				Diff.Normalize();
-				Separation += Diff/Distance;
+				FVector Diff = MyPos-OtherPos;//other 벡터가 MyPos을 바라보는 벡터
+				Diff.Normalize();//Diff의 방향 벡터
+				Separation += Diff/Distance;//MyPos이 저 바라보는 벡터
 			}
 			
 			if (Distance < NeighborRange && Distance > 0.01f)
 			{
-				Alignment += (FlattenedClickPos - OtherPos).GetSafeNormal2D();
-				Cohesion += OtherPos;
+				Alignment += (FlattenedClickPos - OtherPos).GetSafeNormal2D();//otherPos 벡터가 ClickPos 벡터를 바라보는 방향 벡터(Z는 무시)
+				Cohesion += OtherPos;//이웃들의 위치를 다 더해줌
 				NeighborCount++;
 			}
 		}
@@ -107,7 +117,10 @@ void UStonekinSimSubSystem::UpdateSimulation(float DeltaTime)
 		FVector MoveDelta = FinalDir * Speed * DeltaTime;
 		
 		FVector NewPos = MyPos + MoveDelta;
-		NewPos.Z = 100.0f;
+		
+		float TerrainHeight = GetStoneHeight(NewPos);
+		NewPos.Z = TerrainHeight + 10.f;
+		
 		Positions[i] = NewPos;
 		if (!FinalDir.IsNearlyZero())
 		{
@@ -127,6 +140,57 @@ TArray<FVector> UStonekinSimSubSystem::GetPositions() const
 TArray<FQuat> UStonekinSimSubSystem::GetRotations() const
 {
 	return Rotations;
+}
+
+float UStonekinSimSubSystem::GetStoneHeight(FVector CurrentPos)
+{
+	UMainGameInstance* GI = UMainGameInstance::Get(this);
+	if (!GI) return 0.f;
+	if (GI->HeightData.Num()==0) return 0.f;
+	
+	int32 MinX = GI->LandscapeExtent.Min.X;
+	int32 MinY = GI->LandscapeExtent.Min.Y;
+	int32 MaxX = GI->LandscapeExtent.Max.X;
+	int32 MaxY = GI->LandscapeExtent.Max.Y;
+	
+	int32 Width = MaxX - MinX +1;
+	int32 Height = MaxY - MinY +1;
+	
+	if (GI->HeightData.Num() !=Width * Height)
+	{
+		UE_LOG(LogTemp,Error,TEXT("HeightData is not allowed"));
+	}
+	
+	//World -> Landscape local(cm)
+	const FVector Local = GI->LandscapeTransform.InverseTransformPosition(CurrentPos);
+	
+	//local = landscape 기준 로컬 공간에서 몇 cm 떨어져있는지
+	//local(cm) -> Grid
+	//if landscapeScale3D.X/Y is 100, 100 cm -> Grid 1
+	const float ScaleX = FMath::Max(1e-6f, GI->LandscapeScale3D.X); // 1grid = 100cm
+	const float ScaleY = FMath::Max(1e-6f, GI->LandscapeScale3D.Y); // 1grid = 100cm
+	
+	const int32 GridX = FMath::RoundToInt(Local.X / ScaleX); // local의 좌표가 몇번째 그리드인지 체크
+	const int32 GridY = FMath::RoundToInt(Local.Y/ScaleY); // local의 좌표가 몇번째 그리드인지 체크
+	
+	int32 MapX = GridX - MinX;
+	int32 MapY = GridY - MinY;
+	
+	MapX = FMath::Clamp(MapX,0,Width -1);//clamp로 index값 설정
+	MapY = FMath::Clamp(MapY, 0, Height-1);//clamp로 index값 설정
+	
+	const uint16 RawData = GI->HeightData[MapY*Width + MapX];//행우선 배열에서 알맞는 그리드의 z값을 가져옴
+	//여기서 RawData는 32768이 Landscape
+	
+	//utint16 -> height(cm)
+	constexpr float MidValue = 32768.f;
+	const float HeightLocalZ = (static_cast<float>(RawData) - MidValue) / 128.f* GI->LandscapeZScale;
+	
+	//offset world z
+	const float WorldZ = GI->LandscapeTransform.GetLocation().Z + HeightLocalZ;
+	
+	return WorldZ;
+	
 }
 
 void UStonekinSimSubSystem::SetClickPosition(const FVector& ClickPosition)
