@@ -5,7 +5,7 @@
 #include "CoreMinimal.h"
 #include "Engine/GameInstance.h"
 #include "MainGameInstance.generated.h"
-
+class ALandscape;
 /**
  * 
  */
@@ -20,10 +20,9 @@ public:
 	void ContinueGame();
 	void GetLandscapeHeightMap();
 	TArray<uint16> HeightData;
-	FTransform LandscapeTransform;
-	FIntRect LandscapeExtent;
-	FVector LandscapeScale3D;
-	float LandscapeZScale =1.f;
+	
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input)
+	TObjectPtr<ALandscape> LandScapeActor;
 protected:
 	void Init() override;
 	void OnStart() override;

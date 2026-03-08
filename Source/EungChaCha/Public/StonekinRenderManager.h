@@ -22,7 +22,7 @@ protected:
 	virtual void BeginPlay() override;
 	
 	UPROPERTY(VisibleAnywhere,BlueprintReadWrite)
-	TObjectPtr<UHierarchicalInstancedStaticMeshComponent> HISMComponent;
+	TObjectPtr<UHierarchicalInstancedStaticMeshComponent> HismComponent;
 	
 	UPROPERTY()
 	class UStonekinSimSubSystem* SimSubSystem;

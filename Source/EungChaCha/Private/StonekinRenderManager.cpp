@@ -14,8 +14,8 @@ AStonekinRenderManager::AStonekinRenderManager()
  	// Set this actor to call Tick() every frame.  You can turn this off to improve performance if you don't need it.
 	PrimaryActorTick.bCanEverTick = true;
 	
-	HISMComponent = CreateDefaultSubobject<UHierarchicalInstancedStaticMeshComponent>(TEXT("HISM"));
-	SetRootComponent(HISMComponent);
+	HismComponent = CreateDefaultSubobject<UHierarchicalInstancedStaticMeshComponent>(TEXT("HISM"));
+	SetRootComponent(HismComponent);
 	
 }
 
@@ -30,12 +30,12 @@ void AStonekinRenderManager::BeginPlay()
 	const TArray<FQuat>& Rotations = SimSubSystem->GetRotations();
 	int32 NumInstances = Positions.Num();
 	if (Positions.Num()!=Rotations.Num()) return;
-	int32 CurrentISMCount = HISMComponent->GetInstanceCount();
+	int32 CurrentISMCount = HismComponent->GetInstanceCount();
 	if (NumInstances > CurrentISMCount)
 	{
 		for (int32 i = CurrentISMCount; i < NumInstances;++i)
 		{
-			HISMComponent->AddInstance(FTransform(Positions[i]),true);
+			HismComponent->AddInstance(FTransform(Positions[i]),true);
 		}
 	}
 	
@@ -56,8 +56,8 @@ void AStonekinRenderManager::Tick(float DeltaTime)
 	for (int32 i = 0 ; i <NumInstances;++i)
 	{
 		FTransform NewTransform(Rotations[i],Positions[i],FVector(0.1f));
-		HISMComponent->UpdateInstanceTransform(i,NewTransform,true,false,false);
+		HismComponent->UpdateInstanceTransform(i,NewTransform,true,false,false);
 	}
-	HISMComponent->MarkRenderStateDirty();
+	HismComponent->MarkRenderStateDirty();
 }
 

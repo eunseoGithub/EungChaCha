@@ -27,7 +27,7 @@ public:
 private:
 	float GetStoneHeight(FVector CurrentPos);
 private:
-	TArray<float> Velocities;
+	TArray<FVector> Velocities;
 	TArray<FVector> Positions;
 	TArray<FQuat> Rotations;
 	TArray<float> Stability;
@@ -40,7 +40,4 @@ private:
 public:
 	void SetClickPosition(const FVector& ClickPosition);
 	FVector GetClickPosition() const;
-
-	
-	
 };

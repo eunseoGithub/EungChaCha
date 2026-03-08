@@ -27,4 +27,12 @@ public:
 	float NeighborRange = 250.f;
 	UPROPERTY(EditAnywhere, Category="Stonekin|Weights")
 	float DesiredSeparation =120.f;
+	UPROPERTY(EditAnywhere, Category="Stonekin|Weights")
+	float MaxSpeed = 150.f;
+	UPROPERTY(EditAnywhere, Category="Stonekin|Weights")
+	float MaxSteeringForce = 300.f;
+	UPROPERTY(EditAnywhere, Category="Stonekin|Weights")
+	float ArrivalSlowRadius = 300.f;// 이 거리부터 감속 시작
+	UPROPERTY(EditAnywhere, Category="Stonekin|Weights")
+	float ArrivalStopRadius = 80.f;//이 거리 안에서 완전 정지
 };
