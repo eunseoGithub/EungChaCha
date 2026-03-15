@@ -1,6 +1,3 @@
-// Fill out your copyright notice in the Description page of Project Settings.
-
-
 #include "System/MainGameInstance.h"
 
 #include "Landscape.h"
@@ -38,7 +35,7 @@ void UMainGameInstance::GetLandscapeHeightMap()
 		}
 	}
 	
-	if (LandScapeActor== nullptr) return;// 여기까지 landscape 가져오기
+	if (LandScapeActor== nullptr) return;
 	
 }
 

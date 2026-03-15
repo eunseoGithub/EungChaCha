@@ -1,6 +1,3 @@
-// Fill out your copyright notice in the Description page of Project Settings.
-
-
 #include "StonekinRenderManager.h"
 
 #include "System/StonekinSimSubSystem.h"
@@ -8,10 +5,8 @@
 #include "Components/InstancedStaticMeshComponent.h"
 #include "System/MainGameInstance.h"
 
-// Sets default values
 AStonekinRenderManager::AStonekinRenderManager()
 {
- 	// Set this actor to call Tick() every frame.  You can turn this off to improve performance if you don't need it.
 	PrimaryActorTick.bCanEverTick = true;
 	
 	HismComponent = CreateDefaultSubobject<UHierarchicalInstancedStaticMeshComponent>(TEXT("HISM"));
@@ -19,7 +14,6 @@ AStonekinRenderManager::AStonekinRenderManager()
 	
 }
 
-// Called when the game starts or when spawned
 void AStonekinRenderManager::BeginPlay()
 {
 	Super::BeginPlay();
@@ -41,7 +35,6 @@ void AStonekinRenderManager::BeginPlay()
 	
 }
 
-// Called every frame
 void AStonekinRenderManager::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);

@@ -1,5 +1,3 @@
-// Fill out your copyright notice in the Description page of Project Settings.
-
 #pragma once
 
 #include "CoreMinimal.h"
@@ -26,10 +24,13 @@ public:
 	TObjectPtr<AStonekinSimManager> Manager;
 private:
 	float GetStoneHeight(FVector CurrentPos);
+	void ComputeBoidsForces();
+	void ApplyMovement(float DeltaTime);
 private:
 	TArray<FVector> Velocities;
 	TArray<FVector> Positions;
 	TArray<FQuat> Rotations;
+	TArray<FVector> BoidsForces;
 	TArray<float> Stability;
 	TArray<int32> EntityIds;
 	

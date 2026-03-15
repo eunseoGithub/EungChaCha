@@ -46,112 +46,127 @@ int32 UStonekinSimSubSystem::AddEntity(FVector SpawnLocation)
 	Stability.Add(100.f);
 	EntityIds.Add(NewId);
 	Velocities.Add(FVector::ZeroVector);
+	BoidsForces.Add(FVector::ZeroVector);
 	Rotations.Add(FQuat::Identity);
 	IdToIndexMap.Add(NewId,NewIndex);
 	return NewId;
 }
 
 
-// 매 프레임
-// 	↓
-// 각 엔티티 i에 대해:
-// 	↓
-// [이웃 탐색] 주변 j들로부터 Separation / Alignment / Cohesion 누적
-// 	↓
-// [힘 합산]   FinalForce = Target + Sep + Ali + Coh
-// 	↓
-// [감속 비율] 목표까지 거리로 ArrivalScale 계산
-// 	↓
-// [조향]      DesiredVel 목표로 조금씩 방향/속도 전환 (관성)
-// 	↓
-// [정지/감속] StopRadius → ZeroVector / SlowRadius → Damping
-// 	↓
-// [이동]      위치 갱신 + 지형 높이 적용
-// 	↓
-// [회전]      이동 방향으로 구르기
 void UStonekinSimSubSystem::UpdateSimulation(float DeltaTime)
 {
-	//엔티티가 없으면 즉시 종료
-	//Manager에서 파라미터를 매프레임 읽어옴
-	//클릭 위치의 Z를 100으로 고정->모든 계산을 같은 높이에서 한다
 	if (Positions.Num()==0) return;
-	const int32 Size = Positions.Num();
-	
 	if (Manager==nullptr) Manager = Cast<AStonekinSimManager>(UGameplayStatics::GetActorOfClass(GetWorld(),AStonekinSimManager::StaticClass()));
 	if (Manager==nullptr) return;
-	
+
+	ComputeBoidsForces();
+	ApplyMovement(DeltaTime);
+}
+
+// -------------------------------------------------------
+// 군체 알고리즘: 이웃 탐색 → Separation / Alignment / Cohesion 계산
+// 결과를 BoidsForces[i] 에 저장, ApplyMovement 에서 사용
+// -------------------------------------------------------
+void UStonekinSimSubSystem::ComputeBoidsForces()
+{
+	const int32 Size = Positions.Num();
+
 	const float DesiredSeparation = Manager->DesiredSeparation;
-	const float SepWeight = Manager->SepWeight;
-	const float AliWeight = Manager->AliWeight;
-	const float CohWeight = Manager->CohWeight;
-	const float TargetWeight = Manager->TargetWeight;
-	const float NeighborRange = Manager->NeighborRange;
-	const float MaxSpeed = Manager->MaxSpeed;
-	const float MaxSteeringForce = Manager->MaxSteeringForce;
-	const float ArrivalSlowRadius = Manager->ArrivalSlowRadius;
-	const float ArrivalStopRadius = Manager->ArrivalStopRadius;
-	
+	const float SepWeight         = Manager->SepWeight;
+	const float AliWeight         = Manager->AliWeight;
+	const float CohWeight         = Manager->CohWeight;
+	const float NeighborRange     = Manager->NeighborRange;
+
 	FVector FlattenedClickPos = CurrentClickPosition;
 	FlattenedClickPos.Z = 100.0f;
-	
-	//나(i)를 순서대로 처리
-	for (int32 i = 0 ; i < Size;++i)
+
+	for (int32 i = 0; i < Size; ++i)
 	{
-		FVector Separation = FVector::ZeroVector;
-		FVector Alignment = FVector::ZeroVector;
-		FVector Cohesion = FVector::ZeroVector;
+		FVector Separation  = FVector::ZeroVector;
+		FVector Alignment   = FVector::ZeroVector;
+		FVector Cohesion    = FVector::ZeroVector;
 		int32 NeighborCount = 0;
-		
+
 		FVector MyPos = Positions[i];
 		MyPos.Z = 100.f;
-		
+
 		//나(i)와 다른(j) 비교
-		for (int32 j = 0 ; j <Size;j++)
+		for (int32 j = 0; j < Size; j++)
 		{
 			if (i == j) continue;//자기 자신은 건너뜀
-			
+
 			FVector OtherPos = Positions[j];
 			OtherPos.Z = 100.f;
-			
+
 			float Distance = FVector::Dist(MyPos, OtherPos);
+
 			if (Distance < DesiredSeparation && Distance > 0.01f)
 			{
-				FVector Diff = MyPos-OtherPos;//other 벡터가 MyPos을 바라보는 벡터
+				FVector Diff = MyPos - OtherPos;//other 벡터가 MyPos을 바라보는 벡터
 				Diff.Normalize();//Diff의 방향 벡터
-				Separation += Diff/Distance;//MyPos이 저 바라보는 벡터, 가까울수록 강하게 밀어냄
+				Separation += Diff / Distance;//가까울수록 강하게 밀어냄
 			}
-			
+
 			if (Distance < NeighborRange && Distance > 0.01f)
 			{
-				Alignment += (FlattenedClickPos - OtherPos).GetSafeNormal2D();//otherPos 벡터가 ClickPos 벡터를 바라보는 방향 벡터(Z는 무시)
-				Cohesion += OtherPos;//이웃들의 위치를 다 더해줌
+				Alignment += (FlattenedClickPos - OtherPos).GetSafeNormal2D();//이웃이 목표를 바라보는 방향
+				Cohesion  += OtherPos;//이웃들의 위치를 다 더해줌
 				NeighborCount++;
 			}
 		}
-		float DistToTarget = FVector::Dist2D(MyPos, FlattenedClickPos);
-		FVector TargetDir  = (FlattenedClickPos - MyPos).GetSafeNormal2D();
 
-		FVector FinalForce = TargetDir * TargetWeight;// 목표 방향 힘
-		
+		FVector BoidsForce = FVector::ZeroVector;
 		if (NeighborCount > 0)
 		{
 			Alignment /= NeighborCount;//이웃 방향 평균
-			Cohesion = (Cohesion/NeighborCount) - MyPos;// 무리 중심 - 내 위치를 뺀 값 = 중심을 향한 벡터
-			
-			FinalForce += (Separation.GetSafeNormal2D()* SepWeight);//밀어내기
-			FinalForce += (Alignment.GetSafeNormal2D()*AliWeight);//방향 맞추기
-			FinalForce += (Cohesion.GetSafeNormal2D()*CohWeight);//무리 따라가기
+			Cohesion   = (Cohesion / NeighborCount) - MyPos;//무리 중심을 향한 벡터
+
+			BoidsForce += Separation.GetSafeNormal2D() * SepWeight;//밀어내기
+			BoidsForce += Alignment.GetSafeNormal2D()  * AliWeight;//방향 맞추기
+			BoidsForce += Cohesion.GetSafeNormal2D()   * CohWeight;//무리 따라가기
 		}
+
+		BoidsForces[i] = BoidsForce;
+	}
+}
+
+// -------------------------------------------------------
+// 이동: TargetDir + BoidsForces → Steering → 위치/회전 갱신
+// -------------------------------------------------------
+void UStonekinSimSubSystem::ApplyMovement(float DeltaTime)
+{
+	const int32 Size = Positions.Num();
+
+	const float TargetWeight      = Manager->TargetWeight;
+	const float MaxSpeed          = Manager->MaxSpeed;
+	const float MaxSteeringForce  = Manager->MaxSteeringForce;
+	const float ArrivalSlowRadius = Manager->ArrivalSlowRadius;
+	const float ArrivalStopRadius = Manager->ArrivalStopRadius;
+	const float MinArrivalScale   = Manager->MinArrivalScale;
+
+	FVector FlattenedClickPos = CurrentClickPosition;
+	FlattenedClickPos.Z = 100.0f;
+
+	for (int32 i = 0; i < Size; ++i)
+	{
+		FVector MyPos = Positions[i];
+		MyPos.Z = 100.f;
+
+		float DistToTarget = FVector::Dist2D(MyPos, FlattenedClickPos);
+		FVector TargetDir  = (FlattenedClickPos - MyPos).GetSafeNormal2D();
+
+		//TargetDir 에만 ArrivalScale 적용 → Separation은 항상 살아있음
 		float ArrivalScale;
-		if (DistToTarget <= ArrivalStopRadius) // 정지 구간
-			ArrivalScale = 0.f;
-		else if (DistToTarget <  ArrivalSlowRadius) // 감속 구간
-			ArrivalScale = (DistToTarget - ArrivalStopRadius) / (ArrivalSlowRadius - ArrivalStopRadius);
-		else// 전속력 구간
-			ArrivalScale = 1.f;
-		
+		if      (DistToTarget <= ArrivalStopRadius) ArrivalScale = MinArrivalScale;
+		else if (DistToTarget <  ArrivalSlowRadius) ArrivalScale = FMath::Lerp(MinArrivalScale, 1.f, (DistToTarget - ArrivalStopRadius) / (ArrivalSlowRadius - ArrivalStopRadius));
+		else                                        ArrivalScale = 1.f;
+
+		//목표 방향 힘(감속 적용) + 군체 힘 합산
+		//Separation은 ArrivalScale에 영향받지 않아서, 정착한 돌도 뒤에서 밀리면 움직임
+		FVector FinalForce = TargetDir * TargetWeight * ArrivalScale + BoidsForces[i];
+
 		// 1. 목표 속도 계산
-		FVector DesiredVel = FinalForce.GetSafeNormal2D() * MaxSpeed * ArrivalScale;
+		FVector DesiredVel = FinalForce.GetSafeNormal2D() * MaxSpeed;
 
 		// 2. 조향력 = 목표속도 - 현재속도 (급격한 전환을 MaxSteeringForce로 제한)
 		FVector Steering = DesiredVel - Velocities[i];
@@ -160,29 +175,26 @@ void UStonekinSimSubSystem::UpdateSimulation(float DeltaTime)
 		// 3. 관성 적용: 현재 속도에 조향력을 더함
 		FVector NewVel = Velocities[i] + Steering;
 		NewVel = NewVel.GetClampedToMaxSize2D(MaxSpeed);
-	
-		if (DistToTarget <= ArrivalStopRadius)
-		{
-			NewVel = FVector::ZeroVector; // StopRadius 안 → 즉시 정지
-		}
-		else if (DistToTarget < ArrivalSlowRadius)
+
+		//감속 처리: 목표 근처에서 속도를 줄이되 최소 20%는 유지 → 밀리면 반응 가능
+		if (DistToTarget < ArrivalSlowRadius)
 		{
 			float DampFactor = DistToTarget / ArrivalSlowRadius;
-			NewVel *= FMath::Lerp(0.f, 1.f, DampFactor); // 0.85 → 0 으로 강화
+			NewVel *= FMath::Lerp(0.2f, 1.f, DampFactor);
 		}
-		
+
 		//위치 갱신 + 지형 높이
 		FVector MoveDelta = NewVel * DeltaTime;
-		FVector NewPos = MyPos + MoveDelta;
+		FVector NewPos    = MyPos + MoveDelta;
 
 		float TerrainHeight = GetStoneHeight(NewPos);
 		NewPos.Z = TerrainHeight + 10.f;
 
-		Positions[i] = NewPos;
+		Positions[i]  = NewPos;
 		Velocities[i] = NewVel;
-		
+
 		//돌멩이 구르기
-		FVector MoveDir = NewVel.GetSafeNormal2D();  // FinalDir 대신 실제 이동 방향 사용
+		FVector MoveDir = NewVel.GetSafeNormal2D();
 		if (!MoveDir.IsNearlyZero())
 		{
 			FVector RotationAxis = FVector::CrossProduct(FVector::UpVector, MoveDir);

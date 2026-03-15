@@ -1,5 +1,3 @@
-// Fill out your copyright notice in the Description page of Project Settings.
-
 #pragma once
 
 #include "CoreMinimal.h"
@@ -12,11 +10,10 @@ class EUNGCHACHA_API AStonekinSimManager : public AActor
 	GENERATED_BODY()
 	
 public:	
-	// Sets default values for this actor's properties
 	AStonekinSimManager();
 
 	UPROPERTY(EditAnywhere, Category="Stonekin|Weights")
-	float SepWeight = 3.0f;
+	float SepWeight = 4.0f;
 	UPROPERTY(EditAnywhere, Category="Stonekin|Weights")
 	float AliWeight = 1.0f;
 	UPROPERTY(EditAnywhere, Category="Stonekin|Weights")
@@ -32,7 +29,9 @@ public:
 	UPROPERTY(EditAnywhere, Category="Stonekin|Weights")
 	float MaxSteeringForce = 300.f;
 	UPROPERTY(EditAnywhere, Category="Stonekin|Weights")
-	float ArrivalSlowRadius = 300.f;// 이 거리부터 감속 시작
+	float ArrivalSlowRadius = 600.f;// 이 거리부터 감속 시작
 	UPROPERTY(EditAnywhere, Category="Stonekin|Weights")
-	float ArrivalStopRadius = 80.f;//이 거리 안에서 완전 정지
+	float ArrivalStopRadius = 80.f;//이 거리 안에서 감속 최대
+	UPROPERTY(EditAnywhere, Category="Stonekin|Weights")
+	float MinArrivalScale = 1.0f;//정착 후 남길 목표 힘 비율 (0=완전 포기, 높을수록 중앙으로 밀고 들어옴)
 };
