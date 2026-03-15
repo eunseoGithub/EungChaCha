@@ -3,6 +3,7 @@
 
 #include "System/StonekinSimSubSystem.h"
 
+#include "Async/ParallelFor.h"
 #include "Landscape.h"
 #include "StonekinSimManager.h"
 #include "Kismet/GameplayStatics.h"
@@ -64,53 +65,127 @@ void UStonekinSimSubSystem::UpdateSimulation(float DeltaTime)
 }
 
 // -------------------------------------------------------
+// FSpatialHashGrid: Build
+// 매 프레임 돌멩이 위치를 기반으로 그리드 재구축 (싱글스레드)
+// -------------------------------------------------------
+void FSpatialHashGrid::Build(const TArray<FVector>& Positions)
+{
+	const int32 N = Positions.Num();
+
+	AgentCellHash.SetNum(N);
+	SortedAgents.SetNum(N);
+	CellStart.Init(-1, TableSize);
+	CellEnd.Init(-1, TableSize);
+
+	// Step 1: 각 에이전트의 셀 해시 계산
+	for (int32 i = 0; i < N; i++)
+	{
+		SortedAgents[i]  = i;
+		AgentCellHash[i] = HashCell(WorldToCell(Positions[i]));
+	}
+
+	// Step 2: 셀 해시 기준으로 SortedAgents 정렬
+	SortedAgents.Sort([&](int32 A, int32 B)
+	{
+		return AgentCellHash[A] < AgentCellHash[B];
+	});
+
+	// Step 3: CellStart / CellEnd 기록
+	for (int32 Idx = 0; Idx < N; Idx++)
+	{
+		int32 Hash = AgentCellHash[SortedAgents[Idx]];
+
+		if (Idx == 0 || AgentCellHash[SortedAgents[Idx - 1]] != Hash)
+			CellStart[Hash] = Idx;
+
+		CellEnd[Hash] = Idx + 1;
+	}
+}
+
+// -------------------------------------------------------
+// FSpatialHashGrid: QueryNeighbors
+// 특정 위치 기준 반경 내 에이전트 인덱스 반환 (읽기 전용, ParallelFor 안전)
+// -------------------------------------------------------
+void FSpatialHashGrid::QueryNeighbors(const FVector& Pos, float Radius,
+                                       TArray<int32>& OutNeighbors) const
+{
+	FIntPoint Center = WorldToCell(Pos);
+
+	// CellSize = NeighborRange 이면 Range = 1 → 주변 9셀만 검사
+	int32 Range = FMath::CeilToInt(Radius / CellSize);
+
+	for (int32 dx = -Range; dx <= Range; dx++)
+	for (int32 dy = -Range; dy <= Range; dy++)
+	{
+		int32 Hash = HashCell(FIntPoint(Center.X + dx, Center.Y + dy));
+
+		if (CellStart[Hash] == -1) continue;
+
+		// 연속 메모리 순회 (캐시 히트)
+		for (int32 Idx = CellStart[Hash]; Idx < CellEnd[Hash]; Idx++)
+			OutNeighbors.Add(SortedAgents[Idx]);
+	}
+	// 해시 충돌로 인한 false positive는 Boids 루프의 Distance 체크로 자동 필터링됨
+}
+
+// -------------------------------------------------------
 // 군체 알고리즘: 이웃 탐색 → Separation / Alignment / Cohesion 계산
 // 결과를 BoidsForces[i] 에 저장, ApplyMovement 에서 사용
 // -------------------------------------------------------
 void UStonekinSimSubSystem::ComputeBoidsForces()
 {
-	const int32 Size = Positions.Num();
+	const int32 N = Positions.Num();
 
-	const float DesiredSeparation = Manager->DesiredSeparation;
-	const float SepWeight         = Manager->SepWeight;
-	const float AliWeight         = Manager->AliWeight;
-	const float CohWeight         = Manager->CohWeight;
-	const float NeighborRange     = Manager->NeighborRange;
+	const float DesiredSep    = Manager->DesiredSeparation;
+	const float SepWeight     = Manager->SepWeight;
+	const float AliWeight     = Manager->AliWeight;
+	const float CohWeight     = Manager->CohWeight;
+	const float NeighborRange = Manager->NeighborRange;
 
-	FVector FlattenedClickPos = CurrentClickPosition;
-	FlattenedClickPos.Z = 100.0f;
+	FVector FlatClickPos = CurrentClickPosition;
+	FlatClickPos.Z = 100.f;
 
-	for (int32 i = 0; i < Size; ++i)
+	// ─── Step 1: Grid Build (싱글스레드, 순서 보장) ───
+	SpatialGrid.CellSize  = NeighborRange;  // 셀 크기 = 탐색 반경 → 항상 9셀만 검사
+	SpatialGrid.TableSize = 2003;           // 1000개 기준 소수
+	SpatialGrid.Build(Positions);
+	// 이 시점부터 SpatialGrid는 읽기 전용
+
+	// ─── Step 2: Boids 계산 (ParallelFor, 병렬) ───
+	// BoidsForces[i]는 i번 스레드만 쓰므로 락 불필요
+	ParallelFor(N, [&](int32 i)
 	{
-		FVector Separation  = FVector::ZeroVector;
-		FVector Alignment   = FVector::ZeroVector;
-		FVector Cohesion    = FVector::ZeroVector;
-		int32 NeighborCount = 0;
-
 		FVector MyPos = Positions[i];
 		MyPos.Z = 100.f;
 
-		//나(i)와 다른(j) 비교
-		for (int32 j = 0; j < Size; j++)
+		FVector Separation  = FVector::ZeroVector;
+		FVector Alignment   = FVector::ZeroVector;
+		FVector Cohesion    = FVector::ZeroVector;
+		int32   NeighborCount = 0;
+
+		// Grid 읽기 전용 조회 → 스레드 안전
+		TArray<int32> Neighbors;
+		SpatialGrid.QueryNeighbors(MyPos, NeighborRange, Neighbors);
+
+		for (int32 j : Neighbors)
 		{
-			if (i == j) continue;//자기 자신은 건너뜀
+			if (i == j) continue;
 
 			FVector OtherPos = Positions[j];
 			OtherPos.Z = 100.f;
 
 			float Distance = FVector::Dist(MyPos, OtherPos);
 
-			if (Distance < DesiredSeparation && Distance > 0.01f)
+			if (Distance < DesiredSep && Distance > 0.01f)
 			{
-				FVector Diff = MyPos - OtherPos;//other 벡터가 MyPos을 바라보는 벡터
-				Diff.Normalize();//Diff의 방향 벡터
-				Separation += Diff / Distance;//가까울수록 강하게 밀어냄
+				FVector Diff = (MyPos - OtherPos).GetSafeNormal();
+				Separation  += Diff / Distance;
 			}
 
 			if (Distance < NeighborRange && Distance > 0.01f)
 			{
-				Alignment += (FlattenedClickPos - OtherPos).GetSafeNormal2D();//이웃이 목표를 바라보는 방향
-				Cohesion  += OtherPos;//이웃들의 위치를 다 더해줌
+				Alignment += (FlatClickPos - OtherPos).GetSafeNormal2D();
+				Cohesion  += OtherPos;
 				NeighborCount++;
 			}
 		}
@@ -118,16 +193,16 @@ void UStonekinSimSubSystem::ComputeBoidsForces()
 		FVector BoidsForce = FVector::ZeroVector;
 		if (NeighborCount > 0)
 		{
-			Alignment /= NeighborCount;//이웃 방향 평균
-			Cohesion   = (Cohesion / NeighborCount) - MyPos;//무리 중심을 향한 벡터
+			Alignment /= NeighborCount;
+			Cohesion   = (Cohesion / NeighborCount) - MyPos;
 
-			BoidsForce += Separation.GetSafeNormal2D() * SepWeight;//밀어내기
-			BoidsForce += Alignment.GetSafeNormal2D()  * AliWeight;//방향 맞추기
-			BoidsForce += Cohesion.GetSafeNormal2D()   * CohWeight;//무리 따라가기
+			BoidsForce += Separation.GetSafeNormal2D() * SepWeight;
+			BoidsForce += Alignment.GetSafeNormal2D()  * AliWeight;
+			BoidsForce += Cohesion.GetSafeNormal2D()   * CohWeight;
 		}
 
-		BoidsForces[i] = BoidsForce;
-	}
+		BoidsForces[i] = BoidsForce;  // i번 인덱스에만 쓰기 → 스레드 안전
+	});
 }
 
 // -------------------------------------------------------
@@ -198,7 +273,7 @@ void UStonekinSimSubSystem::ApplyMovement(float DeltaTime)
 		if (!MoveDir.IsNearlyZero())
 		{
 			FVector RotationAxis = FVector::CrossProduct(FVector::UpVector, MoveDir);
-			float AngleDelta = MoveDelta.Size() / 50.f;
+			float AngleDelta = MoveDelta.Size() / 5.f;
 			FQuat DeltaRot = FQuat(RotationAxis, AngleDelta);
 			Rotations[i] = (DeltaRot * Rotations[i].GetNormalized());
 		}
