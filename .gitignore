@@ -13,8 +13,8 @@
 .idea/**/shelf
 
 # AWS User-specific
-.idea/**/aws.xml
-
+.idea/
+.claude/
 # Generated files
 .idea/**/contentModel.xml
 
