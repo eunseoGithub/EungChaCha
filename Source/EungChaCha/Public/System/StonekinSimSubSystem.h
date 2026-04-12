@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "FQuadTree.h"
 #include "Subsystems/WorldSubsystem.h"
 #include "StonekinSimSubSystem.generated.h"
 
@@ -59,11 +60,17 @@ public:
 	
 	TArray<FVector> GetPositions() const;
 	TArray<FQuat> GetRotations() const;
+	
+	UPROPERTY()
 	TObjectPtr<AStonekinSimManager> Manager;
+	
+	void SetClickPosition(const FVector& ClickPosition);
+	FVector GetClickPosition() const;
 private:
 	float GetStoneHeight(FVector CurrentPos);
 	void ComputeBoidsForces();
 	void ApplyMovement(float DeltaTime);
+	void InitObstacleTree();
 private:
 	TArray<FVector> Velocities;
 	TArray<FVector> Positions;
@@ -77,8 +84,7 @@ private:
 	int32   NextId = 0;
 
 	FSpatialHashGrid SpatialGrid;  // Grid Hash
-
+	FQuadTree ObstacleTree;
 public:
-	void SetClickPosition(const FVector& ClickPosition);
-	FVector GetClickPosition() const;
+	
 };

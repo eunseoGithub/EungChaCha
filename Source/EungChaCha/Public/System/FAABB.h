@@ -35,9 +35,9 @@ struct FAABB
 	// 두 AABB가 겹치는지
 	bool Intersects(const FAABB& Other) const
 	{
-		if (Max.X < Other.Min.X || Min.Y > Other.Max.X) return false;
+		if (Max.X < Other.Min.X || Min.X > Other.Max.X) return false;
 		if (Max.Y < Other.Min.Y || Min.Y > Other.Max.Y) return false;
-		return false;
+		return true;
 	}
 	
 	// 원(돌멩이)과 겹치는지

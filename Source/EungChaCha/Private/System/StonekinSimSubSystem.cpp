@@ -1,6 +1,3 @@
-// Fill out your copyright notice in the Description page of Project Settings.
-
-
 #include "System/StonekinSimSubSystem.h"
 
 #include "Async/ParallelFor.h"
@@ -17,6 +14,8 @@ void UStonekinSimSubSystem::OnWorldBeginPlay(UWorld& InWorld)
 	{
 		GI->GetLandscapeHeightMap();
 	}
+	
+	InitObstacleTree();
 }
 
 TStatId UStonekinSimSubSystem::GetStatId() const
@@ -145,14 +144,13 @@ void UStonekinSimSubSystem::ComputeBoidsForces()
 	FVector FlatClickPos = CurrentClickPosition;
 	FlatClickPos.Z = 100.f;
 
-	// ─── Step 1: Grid Build (싱글스레드, 순서 보장) ───
+	//Step 1: Grid Build (싱글스레드, 순서 보장)
 	SpatialGrid.CellSize  = NeighborRange;  // 셀 크기 = 탐색 반경 → 항상 9셀만 검사
 	SpatialGrid.TableSize = 2003;           // 1000개 기준 소수
 	SpatialGrid.Build(Positions);
 	// 이 시점부터 SpatialGrid는 읽기 전용
 
-	// ─── Step 2: Boids 계산 (ParallelFor, 병렬) ───
-	// BoidsForces[i]는 i번 스레드만 쓰므로 락 불필요
+	//Step 2: Boids 계산 (ParallelFor, 병렬)
 	ParallelFor(N, [&](int32 i)
 	{
 		FVector MyPos = Positions[i];
@@ -200,7 +198,34 @@ void UStonekinSimSubSystem::ComputeBoidsForces()
 			BoidsForce += Alignment.GetSafeNormal2D()  * AliWeight;
 			BoidsForce += Cohesion.GetSafeNormal2D()   * CohWeight;
 		}
+		
+		const float WallDetect = Manager->WallDetectRadius;
+		const float WallRepulse = Manager->WallRepulsionForce;
+		
+		FAABB SearchRange = FAABB::FromCenterExtent(
+			FVector2D(MyPos.X,MyPos.Y),
+			FVector2D(WallDetect, WallDetect)
+		);
+		TArray<FAABB> NearByWalls;
+		ObstacleTree.Query(0, SearchRange, NearByWalls);
+		
+		for (const FAABB& Wall : NearByWalls)
+		{
+			float CloseX = FMath::Clamp(MyPos.X, Wall.Min.X, Wall.Max.X);
+			float CloseY = FMath::Clamp(MyPos.Y, Wall.Min.Y, Wall.Max.Y);
+			
+			FVector2D Closest(CloseX, CloseY);
+			FVector2D ToStone = FVector2D(MyPos.X, MyPos.Y) - Closest;
+			float Distance = ToStone.Size();
 
+			if (Distance >= WallDetect || Distance < 0.1f) continue;
+			
+			float Strength = 1.f - (Distance / WallDetect);
+			FVector2D Repulsion = ToStone.GetSafeNormal() * Strength * WallRepulse;
+			
+			BoidsForce += FVector(Repulsion.X, Repulsion.Y, 0.f);
+		}
+		
 		BoidsForces[i] = BoidsForce;  // i번 인덱스에만 쓰기 → 스레드 안전
 	});
 }
@@ -278,6 +303,40 @@ void UStonekinSimSubSystem::ApplyMovement(float DeltaTime)
 			Rotations[i] = (DeltaRot * Rotations[i].GetNormalized());
 		}
 	}
+}
+
+void UStonekinSimSubSystem::InitObstacleTree()
+{
+	UWorld* World = GetWorld();
+	if (!World) return;
+	
+	FAABB WorldBounds = FAABB::FromCenterExtent(
+		FVector2D(0.f, 0.f),
+		FVector2D(80000.f, 80000.f)
+	);
+	ObstacleTree.Init(WorldBounds);
+	
+	TArray<AActor*> ObstacleActors;
+	UGameplayStatics::GetAllActorsWithTag(World, FName("Obstacle"), ObstacleActors);
+
+	for (AActor* Actor : ObstacleActors)
+	{
+		if (!Actor) return;
+		
+		FVector Origin;
+		FVector BoxExtent;
+		Actor->GetActorBounds(false, Origin, BoxExtent);
+		
+		FAABB ObstacleBox = FAABB::FromCenterExtent(
+			FVector2D(Origin.X, Origin.Y),
+			FVector2D(BoxExtent.X, BoxExtent.Y)
+		);
+		
+		ObstacleTree.Insert(0, ObstacleBox);
+	}
+	
+	UE_LOG(LogTemp, Log, TEXT("ObstacleTree 초기화 완료 : 벽 %d개"), ObstacleActors.Num());
+	
 }
 
 TArray<FVector> UStonekinSimSubSystem::GetPositions() const

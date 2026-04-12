@@ -34,4 +34,8 @@ public:
 	float ArrivalStopRadius = 80.f;//이 거리 안에서 감속 최대
 	UPROPERTY(EditAnywhere, Category="Stonekin|Weights")
 	float MinArrivalScale = 1.0f;//정착 후 남길 목표 힘 비율 (0=완전 포기, 높을수록 중앙으로 밀고 들어옴)
+	UPROPERTY(EditAnywhere, Category="Stonkin|Obstacle")
+	float WallDetectRadius = 300.f;//벽 감지 시작 거리
+	UPROPERTY(EditAnywhere, Category="Stonkin|Obstacle")
+	float WallRepulsionForce = 500.f;//벽 반발력 세기
 };
