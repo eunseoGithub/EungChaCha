@@ -1,5 +1,12 @@
 #include "System/MainGameModeBase.h"
 
+#include "UI/MainHUD.h"
+
+AMainGameModeBase::AMainGameModeBase()
+{
+	HUDClass = AMainHUD::StaticClass();
+}
+
 void AMainGameModeBase::StartPhase()
 {
 }

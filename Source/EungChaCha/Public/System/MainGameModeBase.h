@@ -9,6 +9,7 @@ class EUNGCHACHA_API AMainGameModeBase : public AGameModeBase
 {
 	GENERATED_BODY()
 public:
+	AMainGameModeBase();
 	void StartPhase();
 	void EndPhase();
 	void SpawnInitialSwarm();

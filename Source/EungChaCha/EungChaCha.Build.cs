@@ -16,7 +16,10 @@ public class EungChaCha : ModuleRules
 				"InputCore",
 				"EnhancedInput",
 				"Landscape",
-				"Foliage"
+				"Foliage",
+				"UMG",
+				"Slate",
+				"SlateCore"
 			});
 
 		PrivateDependencyModuleNames.AddRange(new string[] {  });
