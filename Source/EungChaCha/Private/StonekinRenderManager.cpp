@@ -46,10 +46,16 @@ void AStonekinRenderManager::Tick(float DeltaTime)
 	int32 NumInstances = Positions.Num();
 	if (Positions.Num()!=Rotations.Num()) return;
 	
-	for (int32 i = 0 ; i <NumInstances;++i)
+	int32 CurrentCount = HismComponent->GetInstanceCount();
+	for (int32 i = CurrentCount; i < NumInstances; ++i)
 	{
-		FTransform NewTransform(Rotations[i],Positions[i],FVector(0.1f));
-		HismComponent->UpdateInstanceTransform(i,NewTransform,true,false,false);
+		HismComponent->AddInstance(FTransform(Positions[i]), true);
+	}
+
+	for (int32 i = 0; i < NumInstances; ++i)
+	{
+		FTransform NewTransform(Rotations[i], Positions[i], FVector(0.1f));
+		HismComponent->UpdateInstanceTransform(i, NewTransform, true, false, false);
 	}
 	HismComponent->MarkRenderStateDirty();
 }
