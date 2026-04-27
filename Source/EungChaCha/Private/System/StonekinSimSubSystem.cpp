@@ -339,6 +339,28 @@ void UStonekinSimSubSystem::InitObstacleTree()
 	
 }
 
+TArray<FVector> UStonekinSimSubSystem::GenerateFibonacciSlots(const FVector& ClickPos, int32 Count, float Spacing)
+{
+	TArray<FVector> Slots;
+	Slots.Reserve(Count);
+	
+	const float GoldenAngle = 137.5077f * (PI / 180.f);//라디안
+	
+	for (int32 i = 0; i < Count; i++)
+	{
+		float Radius = Spacing * FMath::Sqrt((float)i);
+		float Angle = i * GoldenAngle;
+		
+		float X = ClickPos.X + Radius * FMath::Cos(Angle);
+		float Y = ClickPos.Y + Radius * FMath::Sin(Angle);
+		float Z = GetStoneHeight(FVector(X, Y, 0.f)) + 10.f;
+		
+		Slots.Add(FVector(X, Y, Z));
+	}
+	
+	return Slots;
+}
+
 TArray<FVector> UStonekinSimSubSystem::GetPositions() const
 {
 	return Positions;

@@ -66,6 +66,7 @@ public:
 	
 	void SetClickPosition(const FVector& ClickPosition);
 	FVector GetClickPosition() const;
+	TArray<FVector> GenerateFibonacciSlots(const FVector& ClickPos, int32 Count, float Spacing);
 private:
 	float GetStoneHeight(FVector CurrentPos);
 	void ComputeBoidsForces();
