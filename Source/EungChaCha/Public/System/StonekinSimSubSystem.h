@@ -79,6 +79,9 @@ private:
 	TArray<FVector> BoidsForces;
 	TArray<float> Stability;
 	TArray<int32> EntityIds;
+	TArray<FVector> AssignedSlots;
+	TArray<bool> bArrived;
+	TArray<int32> StillFrameCount;
 	
 	TMap<int32, int32> IdToIndexMap;
 	FVector CurrentClickPosition = {0.f, 0.f, 0.f};

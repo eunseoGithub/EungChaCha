@@ -49,6 +49,11 @@ int32 UStonekinSimSubSystem::AddEntity(FVector SpawnLocation)
 	BoidsForces.Add(FVector::ZeroVector);
 	Rotations.Add(FQuat::Identity);
 	IdToIndexMap.Add(NewId,NewIndex);
+	
+	AssignedSlots.Add(FVector::ZeroVector);
+	bArrived.Add(true);
+	StillFrameCount.Add(0);
+	
 	return NewId;
 }
 
@@ -141,9 +146,6 @@ void UStonekinSimSubSystem::ComputeBoidsForces()
 	const float CohWeight     = Manager->CohWeight;
 	const float NeighborRange = Manager->NeighborRange;
 
-	FVector FlatClickPos = CurrentClickPosition;
-	FlatClickPos.Z = 100.f;
-
 	//Step 1: Grid Build (싱글스레드, 순서 보장)
 	SpatialGrid.CellSize  = NeighborRange;  // 셀 크기 = 탐색 반경 → 항상 9셀만 검사
 	SpatialGrid.TableSize = 2003;           // 1000개 기준 소수
@@ -153,9 +155,12 @@ void UStonekinSimSubSystem::ComputeBoidsForces()
 	//Step 2: Boids 계산 (ParallelFor, 병렬)
 	ParallelFor(N, [&](int32 i)
 	{
-		FVector MyPos = Positions[i];
-		MyPos.Z = 100.f;
-
+		FVector Pos = Positions[i];
+		Pos.Z = 100.f;
+		
+		FVector Slot = AssignedSlots[i];
+		Slot.Z = 100.f;
+		
 		FVector Separation  = FVector::ZeroVector;
 		FVector Alignment   = FVector::ZeroVector;
 		FVector Cohesion    = FVector::ZeroVector;
@@ -163,7 +168,7 @@ void UStonekinSimSubSystem::ComputeBoidsForces()
 
 		// Grid 읽기 전용 조회 → 스레드 안전
 		TArray<int32> Neighbors;
-		SpatialGrid.QueryNeighbors(MyPos, NeighborRange, Neighbors);
+		SpatialGrid.QueryNeighbors(Pos, NeighborRange, Neighbors);
 
 		for (int32 j : Neighbors)
 		{
@@ -172,29 +177,28 @@ void UStonekinSimSubSystem::ComputeBoidsForces()
 			FVector OtherPos = Positions[j];
 			OtherPos.Z = 100.f;
 
-			float Distance = FVector::Dist(MyPos, OtherPos);
+			float Distance = FVector::Dist(Pos, OtherPos);
 
 			if (Distance < DesiredSep && Distance > 0.01f)
 			{
-				FVector Diff = (MyPos - OtherPos).GetSafeNormal();
+				FVector Diff = (Pos - OtherPos).GetSafeNormal();
 				Separation  += Diff / Distance;
 			}
 
 			if (Distance < NeighborRange && Distance > 0.01f)
 			{
-				Alignment += (FlatClickPos - OtherPos).GetSafeNormal2D();
+				Alignment += (Slot - OtherPos).GetSafeNormal2D();
 				Cohesion  += OtherPos;
 				NeighborCount++;
 			}
 		}
 
-		FVector BoidsForce = FVector::ZeroVector;
-		if (NeighborCount > 0)
+		FVector BoidsForce = Separation.GetSafeNormal2D() * SepWeight;
+		
+		if (!bArrived[i] && NeighborCount > 0)
 		{
 			Alignment /= NeighborCount;
-			Cohesion   = (Cohesion / NeighborCount) - MyPos;
-
-			BoidsForce += Separation.GetSafeNormal2D() * SepWeight;
+			Cohesion   = (Cohesion / NeighborCount) - Pos;
 			BoidsForce += Alignment.GetSafeNormal2D()  * AliWeight;
 			BoidsForce += Cohesion.GetSafeNormal2D()   * CohWeight;
 		}
@@ -203,7 +207,7 @@ void UStonekinSimSubSystem::ComputeBoidsForces()
 		const float WallRepulse = Manager->WallRepulsionForce;
 		
 		FAABB SearchRange = FAABB::FromCenterExtent(
-			FVector2D(MyPos.X,MyPos.Y),
+			FVector2D(Pos.X,Pos.Y),
 			FVector2D(WallDetect, WallDetect)
 		);
 		TArray<FAABB> NearByWalls;
@@ -211,11 +215,11 @@ void UStonekinSimSubSystem::ComputeBoidsForces()
 		
 		for (const FAABB& Wall : NearByWalls)
 		{
-			float CloseX = FMath::Clamp(MyPos.X, Wall.Min.X, Wall.Max.X);
-			float CloseY = FMath::Clamp(MyPos.Y, Wall.Min.Y, Wall.Max.Y);
+			float CloseX = FMath::Clamp(Pos.X, Wall.Min.X, Wall.Max.X);
+			float CloseY = FMath::Clamp(Pos.Y, Wall.Min.Y, Wall.Max.Y);
 			
 			FVector2D Closest(CloseX, CloseY);
-			FVector2D ToStone = FVector2D(MyPos.X, MyPos.Y) - Closest;
+			FVector2D ToStone = FVector2D(Pos.X, Pos.Y) - Closest;
 			float Distance = ToStone.Size();
 
 			if (Distance >= WallDetect || Distance < 0.1f) continue;
@@ -237,56 +241,65 @@ void UStonekinSimSubSystem::ApplyMovement(float DeltaTime)
 {
 	const int32 Size = Positions.Num();
 
-	const float TargetWeight      = Manager->TargetWeight;
-	const float MaxSpeed          = Manager->MaxSpeed;
-	const float MaxSteeringForce  = Manager->MaxSteeringForce;
-	const float ArrivalSlowRadius = Manager->ArrivalSlowRadius;
-	const float ArrivalStopRadius = Manager->ArrivalStopRadius;
-	const float MinArrivalScale   = Manager->MinArrivalScale;
-
-	FVector FlattenedClickPos = CurrentClickPosition;
-	FlattenedClickPos.Z = 100.0f;
-
+	const float TargetWeight = Manager->TargetWeight;
+	const float MaxSpeed = Manager->MaxSpeed;
+	const float MaxSteeringForce = Manager->MaxSteeringForce;
+	const float ProximityRadius = Manager->ProximityRadius;
+	const float StillThreshold = Manager->StillThreshold;
+	const float StillFrameRequired = Manager->StillFrameRequired;
+	
 	for (int32 i = 0; i < Size; ++i)
 	{
-		FVector MyPos = Positions[i];
-		MyPos.Z = 100.f;
+		FVector Pos = Positions[i];
+		Pos.Z = 100.f;
+		
+		FVector Slot = AssignedSlots[i];
+		Slot.Z = 100.f;
 
-		float DistToTarget = FVector::Dist2D(MyPos, FlattenedClickPos);
-		FVector TargetDir  = (FlattenedClickPos - MyPos).GetSafeNormal2D();
-
-		//TargetDir 에만 ArrivalScale 적용 → Separation은 항상 살아있음
-		float ArrivalScale;
-		if      (DistToTarget <= ArrivalStopRadius) ArrivalScale = MinArrivalScale;
-		else if (DistToTarget <  ArrivalSlowRadius) ArrivalScale = FMath::Lerp(MinArrivalScale, 1.f, (DistToTarget - ArrivalStopRadius) / (ArrivalSlowRadius - ArrivalStopRadius));
-		else                                        ArrivalScale = 1.f;
-
-		//목표 방향 힘(감속 적용) + 군체 힘 합산
-		//Separation은 ArrivalScale에 영향받지 않아서, 정착한 돌도 뒤에서 밀리면 움직임
-		FVector FinalForce = TargetDir * TargetWeight * ArrivalScale + BoidsForces[i];
-
-		// 1. 목표 속도 계산
-		FVector DesiredVel = FinalForce.GetSafeNormal2D() * MaxSpeed;
-
-		// 2. 조향력 = 목표속도 - 현재속도 (급격한 전환을 MaxSteeringForce로 제한)
-		FVector Steering = DesiredVel - Velocities[i];
-		Steering = Steering.GetClampedToMaxSize2D(MaxSteeringForce * DeltaTime);
-
-		// 3. 관성 적용: 현재 속도에 조향력을 더함
-		FVector NewVel = Velocities[i] + Steering;
-		NewVel = NewVel.GetClampedToMaxSize2D(MaxSpeed);
-
-		//감속 처리: 목표 근처에서 속도를 줄이되 최소 20%는 유지 → 밀리면 반응 가능
-		if (DistToTarget < ArrivalSlowRadius)
+		if (bArrived[i])
 		{
-			float DampFactor = DistToTarget / ArrivalSlowRadius;
-			NewVel *= FMath::Lerp(0.2f, 1.f, DampFactor);
+			Velocities[i] = FVector::ZeroVector;
+			
+			FVector PushDelta = BoidsForces[i].GetClampedToMaxSize2D(MaxSpeed * 0.3f) * DeltaTime;
+			FVector NewPos = Pos + PushDelta;
+			float TerrainHeight = GetStoneHeight(NewPos);
+			NewPos.Z = TerrainHeight + 10.f;
+			Positions[i] = NewPos;
+			continue;
+		}
+		
+		float DistToSlot = FVector::Dist2D(Pos, Slot);
+		FVector TargetDir = (Slot - Pos).GetSafeNormal2D();
+		FVector FinalForce = TargetDir * TargetWeight + BoidsForces[i];
+		
+		FVector DesireVel = FinalForce.GetSafeNormal2D() * MaxSpeed;
+		FVector Steering = (DesireVel - Velocities[i]).GetClampedToMaxSize2D(MaxSteeringForce * DeltaTime);
+		FVector NewVel = (Velocities[i] + Steering).GetClampedToMaxSize2D(MaxSpeed);
+		
+		if (DistToSlot < ProximityRadius)
+		{
+			float DampFactor = FMath::Clamp(DistToSlot / ProximityRadius, 0.1f, 1.f);
+			NewVel *= DampFactor;
 		}
 
+		if (DistToSlot <= ProximityRadius)
+		{
+			if (NewVel.Size2D() < StillThreshold)
+				StillFrameCount[i]++;
+			else
+				StillFrameCount[i] = 0;
+			
+			if (StillFrameCount[i] >= StillFrameRequired)
+				bArrived[i] = true;
+		}
+		else
+		{
+			StillFrameCount[i] = 0;
+		}
+		
 		//위치 갱신 + 지형 높이
 		FVector MoveDelta = NewVel * DeltaTime;
-		FVector NewPos    = MyPos + MoveDelta;
-
+		FVector NewPos    = Pos + MoveDelta;
 		float TerrainHeight = GetStoneHeight(NewPos);
 		NewPos.Z = TerrainHeight + 10.f;
 
@@ -386,7 +399,39 @@ float UStonekinSimSubSystem::GetStoneHeight(FVector CurrentPos)
 
 void UStonekinSimSubSystem::SetClickPosition(const FVector& ClickPosition)
 {
-	this->CurrentClickPosition = ClickPosition;
+	CurrentClickPosition = ClickPosition;
+	
+	const int32 N = Positions.Num();
+	if (N == 0 || !Manager) return;
+	
+	TArray<FVector> Slots = GenerateFibonacciSlots(ClickPosition, N, Manager->FibonacciSpacing);
+
+	Slots.Sort([&](const FVector& A, const FVector& B)
+	{
+		float AngleA = FMath::Atan2(A.Y - ClickPosition.Y, A.X - ClickPosition.X);
+		float AngleB = FMath::Atan2(B.Y - ClickPosition.Y, B.X - ClickPosition.X);
+		return AngleA < AngleB;
+	});
+	
+	TArray<int32> SortedIndices;
+	SortedIndices.SetNum(N);
+	for (int32 i = 0; i < N; i++) SortedIndices[i] = i;
+
+	SortedIndices.Sort([&](int32 A, int32 B)
+	{
+		float AngleA = FMath::Atan2(Positions[A].Y - ClickPosition.Y, Positions[A].X - ClickPosition.X);
+		float AngleB = FMath::Atan2(Positions[B].Y - ClickPosition.Y, Positions[B].X - ClickPosition.X);
+		return AngleA < AngleB;
+	});
+
+	for (int32 i = 0; i < N; i++)
+	{
+		int32 StoneIdx = SortedIndices[i];
+		AssignedSlots[StoneIdx] = Slots[i];
+		bArrived[StoneIdx] = false;
+		StillFrameCount[StoneIdx] = 0;
+	}
+	
 }
 
 FVector UStonekinSimSubSystem::GetClickPosition() const

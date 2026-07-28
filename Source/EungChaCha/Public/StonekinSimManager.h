@@ -28,14 +28,16 @@ public:
 	float MaxSpeed = 150.f;
 	UPROPERTY(EditAnywhere, Category="Stonekin|Weights")
 	float MaxSteeringForce = 300.f;
-	UPROPERTY(EditAnywhere, Category="Stonekin|Weights")
-	float ArrivalSlowRadius = 600.f;// 이 거리부터 감속 시작
-	UPROPERTY(EditAnywhere, Category="Stonekin|Weights")
-	float ArrivalStopRadius = 80.f;//이 거리 안에서 감속 최대
-	UPROPERTY(EditAnywhere, Category="Stonekin|Weights")
-	float MinArrivalScale = 1.0f;//정착 후 남길 목표 힘 비율 (0=완전 포기, 높을수록 중앙으로 밀고 들어옴)
-	UPROPERTY(EditAnywhere, Category="Stonkin|Obstacle")
+	UPROPERTY(EditAnywhere, Category="Stonekin|Obstacle")
 	float WallDetectRadius = 300.f;//벽 감지 시작 거리
-	UPROPERTY(EditAnywhere, Category="Stonkin|Obstacle")
+	UPROPERTY(EditAnywhere, Category="Stonekin|Obstacle")
 	float WallRepulsionForce = 500.f;//벽 반발력 세기
+	UPROPERTY(EditAnywhere, Category="Stonekin|Arrival")
+	float FibonacciSpacing = 30.f;
+	UPROPERTY(EditAnywhere, Category="Stonekin|Arrival")
+	float ProximityRadius = 200.f;
+	UPROPERTY(EditAnywhere, Category="Stonekin|Arrival")
+	float StillThreshold = 1.f;
+	UPROPERTY(EditAnywhere, Category="Stonekin|Arrival")
+	int32 StillFrameRequired = 10;
 };
